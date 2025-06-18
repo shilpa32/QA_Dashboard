@@ -1,0 +1,16 @@
+Module,EM_Name,QA_Name,QA_Score,QA_Feedback,Date
+Inbox,John Smith,Alice Johnson,95,"Excellent communication and problem-solving skills. Handles customer queries efficiently.",2024-03-17
+Inbox,John Smith,Michael Brown,92,"Great attention to detail and quick response time.",2024-03-17
+Inbox,John Smith,Sarah Wilson,88,"Good customer service skills, could improve on technical knowledge.",2024-03-17
+Builder - NLP,Emily Davis,David Lee,96,"Outstanding work on NLP model implementation and optimization. Handled 5 critical issues effectively.",2024-03-17
+Builder - NLP,Emily Davis,Robert Taylor,91,"Good understanding of NLP concepts, needs improvement in error handling. Managed 5 critical issues.",2024-03-17
+Builder - gen ai,Emily Davis,Jennifer Martinez,94,"Excellent code quality and documentation. Successfully resolved multiple AI integration issues.",2024-03-17
+Engage,Michael Chen,Lisa Anderson,93,"Great work on user engagement metrics and analytics. Resolved all critical issues.",2024-03-17
+Engage,Michael Chen,James Wilson,90,"Good implementation of engagement features, could improve on performance.",2024-03-17
+Engage,Michael Chen,Emma Thompson,89,"Solid work on user interaction features, needs better documentation.",2024-03-17
+Unifield KB,Michael Chen,Daniel Kim,92,"Excellent work on knowledge base optimization and search functionality.",2024-03-17
+Integrations,Michael Chen,Sophia Lee,91,"Good work on API integrations and third-party connections.",2024-03-17
+Voice,Michael Chen,Alex Wong,93,"Outstanding work on voice recognition and call quality improvements.",2024-03-17
+Channels,Michael Chen,Olivia Park,90,"Good work on channel management and message routing.",2024-03-17
+Analyze,Michael Chen,Noah Chen,92,"Excellent work on dashboard performance and data visualization.",2024-03-17
+Analytics(DA+UDP+CDP),Michael Chen,Isabella Garcia,94,"Outstanding work on data processing and real-time analytics.",2024-03-17 

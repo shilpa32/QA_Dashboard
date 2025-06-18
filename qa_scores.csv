@@ -1,0 +1,4 @@
+QA_Name,Date,Action,Points,Notes
+Alice,2024-06-18,Valid bug found,2,Bug #123
+Bob,2024-06-18,Test case written,1,Module: Payments
+Alice,2024-06-18,Missed critical bug,-3,Bug #456 

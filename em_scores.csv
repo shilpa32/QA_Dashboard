@@ -1,0 +1,5 @@
+EM_Name,Date,Action,Points,Notes
+Carol,2024-06-18,Bug resolved,2,Bug #123
+Dave,2024-06-18,Critical bug resolved,3,Bug #789
+Carol,2024-06-18,Bug not resolved in SLA,-2,Bug #456
+Dave,2024-06-18,QA feedback (positive),1,From: Alice 

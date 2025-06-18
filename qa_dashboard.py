@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+from google_sheets_utils import read_qa_data_from_sheet, read_test_case_mappings
 
 # Set page config
 st.set_page_config(
@@ -143,6 +144,7 @@ st.markdown("""
 st.title("📊 QA Metrics Dashboard")
 st.markdown("### QA Report for R&D Team")
 
+<<<<<<< Updated upstream
 # Load data
 @st.cache_data
 def load_data():
@@ -152,7 +154,22 @@ def load_data():
 
 try:
     qa_df, kudo_df = load_data()
+=======
+# Google Sheets configuration
+SPREADSHEET_ID = st.secrets["google_sheets"]["spreadsheet_id"]
+QA_DATA_RANGE = "QA_Data!A1:J11"  # Adjust based on your sheet
+TEST_CASE_MAPPING_RANGE = "Test_Case_Mapping!A1:C100"  # Adjust based on your sheet
+
+# Load data from Google Sheets
+try:
+    df = read_qa_data_from_sheet(SPREADSHEET_ID, QA_DATA_RANGE)
+    test_case_mappings = read_test_case_mappings(SPREADSHEET_ID, TEST_CASE_MAPPING_RANGE)
+>>>>>>> Stashed changes
     
+    if df is None:
+        st.error("Error loading QA data from Google Sheets")
+        st.stop()
+        
     # Convert list columns
     list_columns = ['Test Type', 'Bug Titles', 'Test Cases']
     for col in list_columns:
@@ -732,18 +749,198 @@ for i, tab in enumerate(tabs):
                            value_vars=['P0 issues Open', 'P1 Issues Open', 'Rest Issues Open'],
                            var_name='Priority',
                            value_name='Count')
+<<<<<<< Updated upstream
             fig = px.bar(priority_data,
+=======
+    
+    # Ensure Priority is treated as a categorical variable
+    priority_data['Priority'] = priority_data['Priority'].astype('category')
+    
+    fig = px.bar(priority_data,
+>>>>>>> Stashed changes
                  x='Module',
                  y='Count',
                  color='Priority',
                  title="Open Issues by Priority Level",
                  color_discrete_sequence=['#ff9999', '#66b3ff', '#99ff99'])
+<<<<<<< Updated upstream
             fig.update_layout(
                 height=500,
                 xaxis_title="Module",
                 yaxis_title="Number of Issues",
                 legend_title="Priority Level",
                 template="plotly_white"
+=======
+    fig.update_layout(height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab3:
+    # Module Performance tab content
+    st.subheader("Module Performance Metrics")
+    
+    # Create a heatmap for module performance
+    performance_data = filtered_df[['Module', 'P0 issues Open', 'P0 issues closed', 
+                          'P1 Issues Open', 'P1 Issues Closed']]
+    
+    # Set Module as index and ensure it's treated as categorical
+    performance_data = performance_data.set_index('Module')
+    performance_data.index = performance_data.index.astype('category')
+    
+    fig = px.imshow(performance_data,
+                    title="Module Performance Heatmap",
+                    color_continuous_scale='RdYlGn_r')
+    fig.update_layout(height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab4:
+    # Test Types Analysis
+    st.subheader("Test Type Distribution")
+    
+    # Create a pie chart for test types
+    test_type_counts = {}
+    for test_types in filtered_df['Test Type']:
+        for test_type in test_types:
+            if test_type in selected_test_types:
+                test_type_counts[test_type] = test_type_counts.get(test_type, 0) + 1
+    
+    if test_type_counts:
+        # Convert to DataFrame for better handling
+        test_type_df = pd.DataFrame({
+            'Test Type': list(test_type_counts.keys()),
+            'Count': list(test_type_counts.values())
+        })
+        test_type_df['Test Type'] = test_type_df['Test Type'].astype('category')
+        
+        fig = px.pie(test_type_df,
+                     values='Count',
+                     names='Test Type',
+                     title="Distribution of Test Types")
+        fig.update_layout(height=500)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No test types selected or available for the selected modules.")
+
+with tab5:
+    # Bug Details tab
+    st.subheader("Bug Details by Module")
+    
+    # Create expandable sections for each module
+    for _, row in filtered_df.iterrows():
+        with st.expander(f"{row['Module']} - {row['Total Open Issues']} Open, {row['Total Closed Issues']} Closed Issues"):
+            # Display Test Types
+            st.markdown("### Test Types")
+            st.markdown(", ".join(row['Test Type']))
+            
+            # Create columns for bug counts with clickable metrics
+            st.markdown("### Issue Distribution")
+            col1, col2 = st.columns(2)
+            
+            # Store test cases in session state to persist between button clicks
+            if 'test_cases' not in st.session_state:
+                st.session_state.test_cases = {}
+            
+            # Use dynamic test case mappings from Google Sheets
+            module_tests = test_case_mappings.get(row['Module'], {'P0': [], 'P1': [], 'Other': []})
+            
+            with col1:
+                if st.button(f"View Open Issues ({row['Total Open Issues']})", key=f"open_{row['Module']}"):
+                    st.session_state.test_cases[f"open_{row['Module']}"] = True
+                    st.session_state.test_cases[f"closed_{row['Module']}"] = False
+            
+            with col2:
+                if st.button(f"View Closed Issues ({row['Total Closed Issues']})", key=f"closed_{row['Module']}"):
+                    st.session_state.test_cases[f"closed_{row['Module']}"] = True
+                    st.session_state.test_cases[f"open_{row['Module']}"] = False
+            
+            # Display Bug Details
+            st.markdown("### Bug Details")
+            
+            # Create a table for bug details
+            bug_data = []
+            for bug_title in row['Bug Titles']:
+                # Find associated test cases based on priority
+                p0_tests = []
+                p1_tests = []
+                other_tests = []
+                
+                for test_case in row['Test Cases']:
+                    if any(tc in test_case for tc in module_tests.get('P0', [])):
+                        p0_tests.append(test_case)
+                    elif any(tc in test_case for tc in module_tests.get('P1', [])):
+                        p1_tests.append(test_case)
+                    elif any(tc in test_case for tc in module_tests.get('Other', [])):
+                        other_tests.append(test_case)
+                
+                # Determine bug status based on keywords and associated test cases
+                status = 'Open'
+                if any(keyword in bug_title.lower() for keyword in ['resolved', 'fixed', 'completed', 'closed', 'done']):
+                    status = 'Closed'
+                elif any(keyword in bug_title.lower() for keyword in ['failure', 'error', 'delay', 'issues', 'open', 'pending']):
+                    status = 'Open'
+                
+                # Determine priority based on test cases
+                priority = 'Other'
+                if p0_tests:
+                    priority = 'P0'
+                elif p1_tests:
+                    priority = 'P1'
+                
+                bug_data.append({
+                    'Bug Title': bug_title,
+                    'Status': status,
+                    'Priority': priority,
+                    'P0 Test Cases': ', '.join(p0_tests) if p0_tests else 'None',
+                    'P1 Test Cases': ', '.join(p1_tests) if p1_tests else 'None',
+                    'Other Test Cases': ', '.join(other_tests) if other_tests else 'None'
+                })
+            
+            if bug_data:
+                bug_df = pd.DataFrame(bug_data)
+                
+                # Filter based on selected view
+                if st.session_state.get(f"open_{row['Module']}", False):
+                    bug_df = bug_df[bug_df['Status'] == 'Open']
+                    st.markdown("#### Open Issues")
+                elif st.session_state.get(f"closed_{row['Module']}", False):
+                    bug_df = bug_df[bug_df['Status'] == 'Closed']
+                    st.markdown("#### Closed Issues")
+                
+                if not bug_df.empty:
+                    # Sort by Priority
+                    bug_df = bug_df.sort_values('Priority', ascending=True)
+                    st.dataframe(bug_df, use_container_width=True)
+                    
+                    # Add summary of issues
+                    p0_count = len(bug_df[bug_df['Priority'] == 'P0'])
+                    p1_count = len(bug_df[bug_df['Priority'] == 'P1'])
+                    other_count = len(bug_df[bug_df['Priority'] == 'Other'])
+                    st.markdown(f"**Summary:** P0: {p0_count}, P1: {p1_count}, Other: {other_count}")
+                else:
+                    st.info("No issues found for the selected status.")
+            else:
+                st.info("No bug details available for this module.")
+            
+            # Add a download button for module-specific data
+            module_data = pd.DataFrame([{
+                'Module': row['Module'],
+                'Test Types': ', '.join(row['Test Type']),
+                'P0 Open': row['P0 issues Open'],
+                'P0 Closed': row['P0 issues closed'],
+                'P1 Open': row['P1 Issues Open'],
+                'P1 Closed': row['P1 Issues Closed'],
+                'Other Open': row['Rest Issues Open'],
+                'Other Closed': row['Rest Issues Closed'],
+                'Bug Titles': ', '.join(row['Bug Titles']),
+                'Test Cases': ', '.join(row['Test Cases'])
+            }])
+            
+            st.download_button(
+                label=f"Download {row['Module']} Details",
+                data=module_data.to_csv(index=False).encode('utf-8'),
+                file_name=f"{row['Module'].lower().replace(' ', '_')}_details.csv",
+                mime='text/csv',
+                key=f"download_{row['Module']}"
+>>>>>>> Stashed changes
             )
             st.plotly_chart(fig, use_container_width=True)
         elif tab_names[i] == "Module Performance":

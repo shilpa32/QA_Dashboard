@@ -81,3 +81,50 @@ def read_qa_data_from_sheet(spreadsheet_id, range_name):
     except Exception as e:
         print(f"Error reading from Google Sheet: {str(e)}")
         return None 
+
+def read_test_case_mappings(spreadsheet_id, range_name):
+    """
+    Read test case mappings from Google Sheet.
+    
+    Args:
+        spreadsheet_id (str): The ID of the spreadsheet to read from
+        range_name (str): The A1 notation of the values to retrieve
+    
+    Returns:
+        dict: Dictionary containing test case mappings for each module
+    """
+    try:
+        service = get_google_sheets_service()
+        sheet = service.spreadsheets()
+        result = sheet.values().get(
+            spreadsheetId=spreadsheet_id,
+            range=range_name
+        ).execute()
+        
+        values = result.get('values', [])
+        
+        if not values:
+            print('No test case mapping data found.')
+            return {}
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(values[1:], columns=values[0])
+        
+        # Create test case mappings dictionary
+        test_case_mappings = {}
+        
+        for _, row in df.iterrows():
+            module = row['Module']
+            priority = row['Priority']
+            test_cases = row['Test Cases'].split(',') if isinstance(row['Test Cases'], str) else []
+            
+            if module not in test_case_mappings:
+                test_case_mappings[module] = {'P0': [], 'P1': [], 'Other': []}
+            
+            test_case_mappings[module][priority] = test_cases
+        
+        return test_case_mappings
+        
+    except Exception as e:
+        print(f"Error reading test case mappings from Google Sheet: {str(e)}")
+        return {} 

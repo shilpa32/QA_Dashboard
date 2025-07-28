@@ -146,8 +146,8 @@ st.markdown("### QA Report for R&D Team")
 # Load data
 @st.cache_data
 def load_data():
-    qa_df = pd.read_csv('qa_data_template.csv')
-    kudo_df = pd.read_csv('kudo_data.csv')
+    qa_df = pd.read_excel('qa_data_template.xlsx')
+    kudo_df = pd.read_excel('kudo_data.xlsx')
     return qa_df, kudo_df
 
 try:
@@ -192,12 +192,21 @@ selected_modules = st.sidebar.multiselect(
 )
     
 # EM Filter
+em_names = kudo_df['EM_Name'].unique()
+if 'previous_ems' not in st.session_state:
+    st.session_state.previous_ems = list(em_names)
 selected_ems = st.sidebar.multiselect(
     "Select Engineering Managers",
-    kudo_df['EM_Name'].unique(),
-    default=kudo_df['EM_Name'].unique(),
+    em_names,
+    default=st.session_state.previous_ems,
     key="em_filter"
 )
+# Enforce at least one EM selected
+if len(selected_ems) == 0:
+    st.warning("At least one Engineering Manager must be selected.")
+    selected_ems = st.session_state.previous_ems
+else:
+    st.session_state.previous_ems = selected_ems
 
 # Filter data based on selections
 filtered_qa_df = qa_df[qa_df['Module'].isin(selected_modules)]
@@ -236,7 +245,7 @@ st.session_state.previous_test_types = selected_test_types
 st.session_state.previous_ems = selected_ems
 
 # Create tabs for different views
-tab_names = ["Recognition", "Overview", "Priority Analysis", "Module Performance", "Test Types", "Bug Details"]
+tab_names = ["Recognition", "Overview", "Priority Analysis", "Module Performance", "Test Types", "Bug Details", "Automation Trends"]
 tabs = st.tabs(tab_names)
 
 # Determine which tab to show
@@ -681,8 +690,8 @@ for i, tab in enumerate(tabs):
 
             # --- QA & EM Scoring Section ---
             try:
-                qa_scores = pd.read_csv('qa_scores.csv')
-                em_scores = pd.read_csv('em_scores.csv')
+                qa_scores = pd.read_excel('qa_scores.xlsx')
+                em_scores = pd.read_excel('em_scores.xlsx')
 
                 qa_totals = qa_scores.groupby('QA_Name')['Points'].sum().reset_index()
                 qa_totals = qa_totals.sort_values(by='Points', ascending=False)
@@ -784,13 +793,129 @@ for i, tab in enumerate(tabs):
                     # Display Test Types
                     st.markdown("### Test Types")
                     st.markdown(", ".join(row['Test Type']))
-                    # Create columns for bug counts with clickable metrics
+                    # Create columns for bug counts with clickable toggles
                     st.markdown("### Issue Distribution")
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.metric("Open Issues", row['Total Open Issues'])
+                        show_open = st.toggle(f"Show Open Issues ({row['Total Open Issues']})", key=f"open_{row['Module']}")
                     with col2:
-                        st.metric("Closed Issues", row['Total Closed Issues'])
+                        show_closed = st.toggle(f"Show Closed Issues ({row['Total Closed Issues']})", key=f"closed_{row['Module']}")
+
+                    # Helper to extract bugs by priority and status
+                    def get_bugs_by_priority_status(row, status):
+                        bug_titles = row['Bug Titles']
+                        test_cases = row['Test Cases'] if 'Test Cases' in row and isinstance(row['Test Cases'], list) else []
+                        bugs = []
+                        idx = 0
+                        priorities = [
+                            ("P0", row['P0 issues Open'], row['P0 issues closed']),
+                            ("P1", row['P1 Issues Open'], row['P1 Issues Closed']),
+                            ("Rest", row['Rest Issues Open'], row['Rest Issues Closed'])
+                        ]
+                        for prio, open_count, closed_count in priorities:
+                            if status == 'Open':
+                                count = open_count
+                            else:
+                                count = closed_count
+                            for i in range(count):
+                                if idx < len(bug_titles):
+                                    bugs.append({
+                                        'Priority': prio,
+                                        'Bug Title': bug_titles[idx],
+                                        'Test Case': test_cases[idx] if idx < len(test_cases) else ''
+                                    })
+                                idx += 1
+                        return bugs
+
+                    # Show open bugs by priority
+                    if show_open:
+                        open_bugs = get_bugs_by_priority_status(row, 'Open')
+                        if open_bugs:
+                            st.markdown("#### 🟢 Open Bugs by Priority")
+                            open_df = pd.DataFrame(open_bugs)
+                            for prio in ["P0", "P1", "Rest"]:
+                                prio_bugs = open_df[open_df['Priority'] == prio]
+                                if not prio_bugs.empty:
+                                    st.markdown(f"**{prio} Issues**")
+                                    st.dataframe(prio_bugs[['Bug Title', 'Test Case']], hide_index=True, use_container_width=True)
+                        else:
+                            st.info("No open bugs found for this module.")
+                    # Show closed bugs by priority
+                    if show_closed:
+                        closed_bugs = get_bugs_by_priority_status(row, 'Closed')
+                        if closed_bugs:
+                            st.markdown("#### 🔵 Closed Bugs by Priority")
+                            closed_df = pd.DataFrame(closed_bugs)
+                            for prio in ["P0", "P1", "Rest"]:
+                                prio_bugs = closed_df[closed_df['Priority'] == prio]
+                                if not prio_bugs.empty:
+                                    st.markdown(f"**{prio} Issues**")
+                                    st.dataframe(prio_bugs[['Bug Title', 'Test Case']], hide_index=True, use_container_width=True)
+                        else:
+                            st.info("No closed bugs found for this module.")
+        elif tab_names[i] == "Automation Trends":
+            st.subheader("Automation Trends by Module (Month-wise)")
+            import os
+            import numpy as np
+            import plotly.express as px
+            from datetime import datetime
+            # Read automation data
+            if os.path.exists('automation_status.xlsx'):
+                auto_df = pd.read_excel('automation_status.xlsx')
+                # Clean/convert data
+                auto_df = auto_df.replace({'Automated Test Cases Added': {'--': np.nan}, 'Total Test Cases': {'--': np.nan}})
+                auto_df['Automated Test Cases Added'] = pd.to_numeric(auto_df['Automated Test Cases Added'], errors='coerce')
+                auto_df['Total Test Cases'] = pd.to_numeric(auto_df['Total Test Cases'], errors='coerce')
+                # Fix year in Month column if needed
+                current_year = datetime.now().year
+                def fix_year(month_str):
+                    if isinstance(month_str, str) and month_str.startswith('2024-'):
+                        return month_str.replace('2024-', f'{current_year}-')
+                    return month_str
+                auto_df['Month'] = auto_df['Month'].apply(fix_year)
+                auto_df['% Automated'] = (auto_df['Automated Test Cases Added'] / auto_df['Total Test Cases'] * 100).round(1)
+                # Table
+                st.dataframe(auto_df[['Module','Month','Automated Test Cases Added','Total Test Cases','% Automated']].fillna('N/A'), use_container_width=True, hide_index=True)
+                # Grouped bar chart
+                chart_df = auto_df.dropna(subset=['% Automated'])
+                if not chart_df.empty:
+                    fig = px.bar(
+                        chart_df,
+                        x='Month',
+                        y='% Automated',
+                        color='Module',
+                        barmode='group',
+                        text='Automated Test Cases Added',
+                        hover_data={
+                            'Module': True,
+                            'Month': True,
+                            '% Automated': ':.1f',
+                            'Automated Test Cases Added': True,
+                            'Total Test Cases': True
+                        },
+                        title='Automation Coverage (%) by Module Over Time',
+                        height=500
+                    )
+                    fig.update_traces(texttemplate='%{text}', textposition='outside')
+                    fig.update_layout(
+                        yaxis_title='% Automated',
+                        xaxis_title='Month',
+                        template='plotly_dark',
+                        bargap=0.2,
+                        legend_title='Module',
+                        font=dict(size=14),
+                        plot_bgcolor='#222',
+                        paper_bgcolor='#222',
+                        title_font_size=22
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    # Add a note if the year was changed
+                    if any('2024-' in m for m in auto_df['Month']):
+                        st.info(f"Note: Month values shown with current year {current_year} for display. Update your data for accuracy.")
+                else:
+                    st.info('No valid automation data to plot.')
+            else:
+                st.warning('No automation_status.xlsx file found.')
 
 # Add a summary section at the bottom
 st.markdown("---")

@@ -145,13 +145,28 @@ st.markdown("### QA Report for R&D Team")
 
 # Load data
 @st.cache_data
+# Updated to load from a single Excel file with multiple sheets
 def load_data():
-    qa_df = pd.read_excel('qa_data_template.xlsx')
-    kudo_df = pd.read_excel('kudo_data.xlsx')
-    return qa_df, kudo_df
+    with pd.ExcelFile('dashboard_data.xlsx') as xls:
+        qa_df = pd.read_excel(xls, 'QA Data')
+        kudo_df = pd.read_excel(xls, 'Kudo Data')
+        qa_scores = pd.read_excel(xls, 'QA Scores')
+        em_scores = pd.read_excel(xls, 'EM Scores')
+        auto_df = pd.read_excel(xls, 'Automation Status')
+        try:
+            feature_df = pd.read_excel(xls, 'Feature Tracking')
+            if 'Month' not in feature_df.columns:
+                feature_df['Month'] = ''
+        except Exception:
+            feature_df = pd.DataFrame([
+                {'Feature Name': 'Login Revamp', 'QA Name': 'Alice', 'EM Name': 'Bob', 'Go Live Date': '2024-06-01', 'Month': 'June 2024', 'Feature Ticket Link': ''},
+                {'Feature Name': 'Dark Mode', 'QA Name': 'Charlie', 'EM Name': 'Dana', 'Go Live Date': '2024-06-15', 'Month': 'June 2024', 'Feature Ticket Link': ''},
+                {'Feature Name': 'API v2', 'QA Name': 'Eve', 'EM Name': 'Frank', 'Go Live Date': '2024-07-01', 'Month': 'July 2024', 'Feature Ticket Link': ''}
+            ])
+    return qa_df, kudo_df, qa_scores, em_scores, auto_df, feature_df
 
 try:
-    qa_df, kudo_df = load_data()
+    qa_df, kudo_df, qa_scores, em_scores, auto_df, feature_df = load_data()
     
     # Convert list columns
     list_columns = ['Test Type', 'Bug Titles', 'Test Cases']
@@ -245,7 +260,7 @@ st.session_state.previous_test_types = selected_test_types
 st.session_state.previous_ems = selected_ems
 
 # Create tabs for different views
-tab_names = ["Recognition", "Overview", "Priority Analysis", "Module Performance", "Test Types", "Bug Details", "Automation Trends"]
+tab_names = ["Recognition", "Overview", "Priority Analysis", "Module Performance", "Test Types", "Bug Details", "Automation Trends", "Feature"]
 tabs = st.tabs(tab_names)
 
 # Determine which tab to show
@@ -690,9 +705,6 @@ for i, tab in enumerate(tabs):
 
             # --- QA & EM Scoring Section ---
             try:
-                qa_scores = pd.read_excel('qa_scores.xlsx')
-                em_scores = pd.read_excel('em_scores.xlsx')
-
                 qa_totals = qa_scores.groupby('QA_Name')['Points'].sum().reset_index()
                 qa_totals = qa_totals.sort_values(by='Points', ascending=False)
 
@@ -860,8 +872,8 @@ for i, tab in enumerate(tabs):
             import plotly.express as px
             from datetime import datetime
             # Read automation data
-            if os.path.exists('automation_status.xlsx'):
-                auto_df = pd.read_excel('automation_status.xlsx')
+            if os.path.exists('dashboard_data.xlsx'):
+                auto_df = pd.read_excel('dashboard_data.xlsx', 'Automation Status')
                 # Clean/convert data
                 auto_df = auto_df.replace({'Automated Test Cases Added': {'--': np.nan}, 'Total Test Cases': {'--': np.nan}})
                 auto_df['Automated Test Cases Added'] = pd.to_numeric(auto_df['Automated Test Cases Added'], errors='coerce')
@@ -916,6 +928,10 @@ for i, tab in enumerate(tabs):
                     st.info('No valid automation data to plot.')
             else:
                 st.warning('No automation_status.xlsx file found.')
+        elif tab_names[i] == "Feature":
+            st.subheader("Feature Tracking")
+            st.markdown("This tab tracks features tested each month, including QA, EM, go live date, month, and ticket link.")
+            st.dataframe(feature_df[[col for col in ['Feature Name', 'QA Name', 'EM Name', 'Go Live Date', 'Month', 'Feature Ticket Link'] if col in feature_df.columns]], use_container_width=True, hide_index=True)
 
 # Add a summary section at the bottom
 st.markdown("---")

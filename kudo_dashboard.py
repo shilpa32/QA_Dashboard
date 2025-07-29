@@ -42,8 +42,9 @@ st.markdown("### Recognition and Feedback for QA Engineers")
 # Load data
 @st.cache_data
 def load_data():
-    kudo_df = pd.read_excel('kudo_data.xlsx')
-    qa_df = pd.read_excel('qa_data_template.xlsx')
+    with pd.ExcelFile('dashboard_data.xlsx') as xls:
+        kudo_df = pd.read_excel(xls, 'Kudo Data')
+        qa_df = pd.read_excel(xls, 'QA Data')
     return kudo_df, qa_df
 
 try:

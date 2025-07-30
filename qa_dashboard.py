@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+import re
 
 # Set page config
 st.set_page_config(
@@ -154,7 +155,7 @@ def load_data():
         em_scores = pd.read_excel(xls, 'EM Scores')
         auto_df = pd.read_excel(xls, 'Automation Status')
         try:
-            feature_df = pd.read_excel(xls, 'Feature Tracking')
+            feature_df = pd.read_excel(xls, 'Feature Tracker')
             if 'Month' not in feature_df.columns:
                 feature_df['Month'] = ''
         except Exception:
@@ -303,8 +304,8 @@ for i, tab in enumerate(tabs):
                 em_qas = filtered_kudo_df[filtered_kudo_df['EM_Name'] == row['EM_Name']]['QA_Name'].unique()
                 
                 # Calculate total bugs for all QAs under this EM
-                total_open = (em_bugs['P0 issues Open'] + em_bugs['P1 Issues Open'] + em_bugs['Rest Issues Open']) * len(em_qas)
-                total_closed = (em_bugs['P0 issues closed'] + em_bugs['P1 Issues Closed'] + em_bugs['Rest Issues Closed']) * len(em_qas)
+                total_open = (em_bugs['P0 issues Open'] + em_bugs['P1 Issues Open'] + em_bugs['Rest Issues Open'])
+                total_closed = (em_bugs['P0 issues closed'] + em_bugs['P1 Issues Closed'] + em_bugs['Rest Issues Closed'])
                 
                 em_bug_metrics.append({
                     'EM_Name': row['EM_Name'],
@@ -895,7 +896,7 @@ for i, tab in enumerate(tabs):
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     # Add a note if the year was changed
-                    if any('2024-' in m for m in auto_df['Month']):
+                    if any('2024-' in str(m) for m in auto_df['Month']):
                         st.info(f"Note: Month values shown with current year {current_year} for display. Update your data for accuracy.")
                 else:
                     st.info('No valid automation data to plot.')

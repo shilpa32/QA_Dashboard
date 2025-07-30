@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-import re
 
 # Set page config
 st.set_page_config(
@@ -155,11 +154,15 @@ def load_data():
         em_scores = pd.read_excel(xls, 'EM Scores')
         auto_df = pd.read_excel(xls, 'Automation Status')
         try:
-            feature_df = pd.read_excel(xls, 'Feature Tracker')
+            feature_df = pd.read_excel(xls, 'Feature Tracking')
             if 'Month' not in feature_df.columns:
                 feature_df['Month'] = ''
-        except Exception as e:
-            raise RuntimeError("Could not load 'Feature Tracker' sheet from Excel. Please check the sheet name and data format.") from e
+        except Exception:
+            feature_df = pd.DataFrame([
+                {'Feature Name': 'Login Revamp', 'QA Name': 'Alice', 'EM Name': 'Bob', 'Go Live Date': '2024-06-01', 'Month': 'June 2024', 'Feature Ticket Link': ''},
+                {'Feature Name': 'Dark Mode', 'QA Name': 'Charlie', 'EM Name': 'Dana', 'Go Live Date': '2024-06-15', 'Month': 'June 2024', 'Feature Ticket Link': ''},
+                {'Feature Name': 'API v2', 'QA Name': 'Eve', 'EM Name': 'Frank', 'Go Live Date': '2024-07-01', 'Month': 'July 2024', 'Feature Ticket Link': ''}
+            ])
     return qa_df, kudo_df, qa_scores, em_scores, auto_df, feature_df
 
 try:
@@ -304,8 +307,8 @@ for i, tab in enumerate(tabs):
                 em_qas = filtered_kudo_df[filtered_kudo_df['EM_Name'] == row['EM_Name']]['QA_Name'].unique()
                 
                 # Calculate total bugs for all QAs under this EM
-                total_open = (em_bugs['P0 issues Open'] + em_bugs['P1 Issues Open'] + em_bugs['Rest Issues Open'])
-                total_closed = (em_bugs['P0 issues closed'] + em_bugs['P1 Issues Closed'] + em_bugs['Rest Issues Closed'])
+                total_open = (em_bugs['P0 issues Open'] + em_bugs['P1 Issues Open'] + em_bugs['Rest Issues Open']) * len(em_qas)
+                total_closed = (em_bugs['P0 issues closed'] + em_bugs['P1 Issues Closed'] + em_bugs['Rest Issues Closed']) * len(em_qas)
                 
                 em_bug_metrics.append({
                     'EM_Name': row['EM_Name'],
@@ -355,14 +358,13 @@ for i, tab in enumerate(tabs):
                     'Rest Issues Closed': 'sum'
                 })
                 
-                # Calculate P0 metrics (divide by number of QAs in the EM to avoid double counting)
-                em_qa_count = len(filtered_kudo_df[filtered_kudo_df['EM_Name'] == row['EM_Name']])
-                p0_open = em_bugs['P0 issues Open'] / em_qa_count if em_qa_count > 0 else 0
-                p0_closed = em_bugs['P0 issues closed'] / em_qa_count if em_qa_count > 0 else 0
+                # Calculate P0 metrics
+                p0_open = em_bugs['P0 issues Open']
+                p0_closed = em_bugs['P0 issues closed']
                 
-                # Calculate total metrics (divide by number of QAs in the EM to avoid double counting)
-                total_open = (em_bugs['P0 issues Open'] + em_bugs['P1 Issues Open'] + em_bugs['Rest Issues Open']) / em_qa_count if em_qa_count > 0 else 0
-                total_closed = (em_bugs['P0 issues closed'] + em_bugs['P1 Issues Closed'] + em_bugs['Rest Issues Closed']) / em_qa_count if em_qa_count > 0 else 0
+                # Calculate total metrics
+                total_open = (em_bugs['P0 issues Open'] + em_bugs['P1 Issues Open'] + em_bugs['Rest Issues Open'])
+                total_closed = (em_bugs['P0 issues closed'] + em_bugs['P1 Issues Closed'] + em_bugs['Rest Issues Closed'])
                 
                 qa_bug_metrics.append({
                     'QA_Name': row['QA_Name'],
@@ -920,7 +922,7 @@ for i, tab in enumerate(tabs):
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     # Add a note if the year was changed
-                    if any('2024-' in str(m) for m in auto_df['Month']):
+                    if any('2024-' in m for m in auto_df['Month']):
                         st.info(f"Note: Month values shown with current year {current_year} for display. Update your data for accuracy.")
                 else:
                     st.info('No valid automation data to plot.')
@@ -929,41 +931,7 @@ for i, tab in enumerate(tabs):
         elif tab_names[i] == "Feature":
             st.subheader("Feature Tracking")
             st.markdown("This tab tracks features tested each month, including QA, EM, go live date, month, and ticket link.")
-            # Use 'Month' column if present, else fallback to 'Go Live Date' month
-            feature_df_display = feature_df.copy()
-            if 'Month' in feature_df_display.columns:
-                feature_df_display['Month'] = pd.to_datetime(feature_df_display['Month'], errors='coerce')
-            elif 'Go Live Date' in feature_df_display.columns:
-                feature_df_display['Month'] = pd.to_datetime(feature_df_display['Go Live Date'], errors='coerce').dt.to_period('M').dt.to_timestamp()
-            else:
-                feature_df_display['Month'] = pd.NaT
-
-            # Get all unique months in the data (even if no features for some months)
-            all_months = feature_df_display['Month'].dropna().dt.to_period('M').unique()
-            all_months = sorted([m.to_timestamp() for m in all_months])
-            # If no months, fallback to current month
-            import datetime
-            if not all_months:
-                all_months = [datetime.datetime.now().replace(day=1)]
-            # Show month names in dropdown, but filter by YYYY-MM internally
-            month_options = [(m.strftime('%B %Y'), m.strftime('%Y-%m')) for m in all_months]
-            month_labels = [label for label, value in month_options]
-            month_values = [value for label, value in month_options]
-            selected_label = st.selectbox("Select Month", options=month_labels)
-            selected_month = month_values[month_labels.index(selected_label)]
-            # Filter for selected month
-            filtered_df = feature_df_display[feature_df_display['Month'].dt.strftime('%Y-%m') == selected_month]
-            def make_clickable(val):
-                if isinstance(val, str) and re.match(r"https?://", val):
-                    return f'<a href="{val}" target="_blank">{val}</a>'
-                return val
-            if not filtered_df.empty:
-                # Add style to increase Month column width
-                feature_html = filtered_df.applymap(make_clickable).to_html(escape=False, index=False)
-                feature_html = feature_html.replace('<th>Month</th>', '<th style="min-width:120px;">Month</th>')
-                st.markdown(feature_html, unsafe_allow_html=True)
-            else:
-                st.info("No features for this month.")
+            st.dataframe(feature_df[[col for col in ['Feature Name', 'QA Name', 'EM Name', 'Go Live Date', 'Month', 'Feature Ticket Link'] if col in feature_df.columns]], use_container_width=True, hide_index=True)
 
 # Add a summary section at the bottom
 st.markdown("---")

@@ -158,11 +158,7 @@ def load_data():
             if 'Month' not in feature_df.columns:
                 feature_df['Month'] = ''
         except Exception:
-            feature_df = pd.DataFrame([
-                {'Feature Name': 'Login Revamp', 'QA Name': 'Alice', 'EM Name': 'Bob', 'Go Live Date': '2024-06-01', 'Month': 'June 2024', 'Feature Ticket Link': ''},
-                {'Feature Name': 'Dark Mode', 'QA Name': 'Charlie', 'EM Name': 'Dana', 'Go Live Date': '2024-06-15', 'Month': 'June 2024', 'Feature Ticket Link': ''},
-                {'Feature Name': 'API v2', 'QA Name': 'Eve', 'EM Name': 'Frank', 'Go Live Date': '2024-07-01', 'Month': 'July 2024', 'Feature Ticket Link': ''}
-            ])
+            feature_df = pd.DataFrame(columns=['Feature Name', 'QA Name', 'EM Name', 'Go Live Date', 'Month', 'Feature Ticket Link'])
     return qa_df, kudo_df, qa_scores, em_scores, auto_df, feature_df
 
 try:
@@ -340,16 +336,15 @@ for i, tab in enumerate(tabs):
             top_em = em_performance.iloc[0]
             
             # Calculate QA Performance
+            # --- Update QA bug metrics: divide bugs equally among QAs assigned to each module ---
             qa_performance = filtered_kudo_df.copy()
-            
-            # Get bug metrics for each QA based on their EM's modules
             qa_bug_metrics = []
             for _, row in qa_performance.iterrows():
-                # Get all modules managed by this QA's EM
-                em_modules = em_performance[em_performance['EM_Name'] == row['EM_Name']]['Module'].iloc[0]
-                
-                # Sum up all bugs from all modules managed by this EM
-                em_bugs = filtered_qa_df[filtered_qa_df['Module'].isin(em_modules)].agg({
+                qa_name = row['QA_Name']
+                qa_module = row['Module']
+                # Find how many QAs are assigned to this module
+                qas_for_module = filtered_kudo_df[filtered_kudo_df['Module'] == qa_module]['QA_Name'].nunique()
+                qa_bugs = filtered_qa_df[filtered_qa_df['Module'] == qa_module].agg({
                     'P0 issues Open': 'sum',
                     'P0 issues closed': 'sum',
                     'P1 Issues Open': 'sum',
@@ -357,25 +352,21 @@ for i, tab in enumerate(tabs):
                     'Rest Issues Open': 'sum',
                     'Rest Issues Closed': 'sum'
                 })
-                
-                # Calculate P0 metrics
-                p0_open = em_bugs['P0 issues Open']
-                p0_closed = em_bugs['P0 issues closed']
-                
-                # Calculate total metrics
-                total_open = (em_bugs['P0 issues Open'] + em_bugs['P1 Issues Open'] + em_bugs['Rest Issues Open'])
-                total_closed = (em_bugs['P0 issues closed'] + em_bugs['P1 Issues Closed'] + em_bugs['Rest Issues Closed'])
-                
+                # Divide bug counts by number of QAs assigned to the module
+                divisor = qas_for_module if qas_for_module > 0 else 1
+                p0_open = qa_bugs['P0 issues Open'] / divisor
+                p0_closed = qa_bugs['P0 issues closed'] / divisor
+                total_open = (qa_bugs['P0 issues Open'] + qa_bugs['P1 Issues Open'] + qa_bugs['Rest Issues Open']) / divisor
+                total_closed = (qa_bugs['P0 issues closed'] + qa_bugs['P1 Issues Closed'] + qa_bugs['Rest Issues Closed']) / divisor
                 qa_bug_metrics.append({
-                    'QA_Name': row['QA_Name'],
-                    'Module': row['Module'],
+                    'QA_Name': qa_name,
+                    'Module': qa_module,
                     'EM_Name': row['EM_Name'],
                     'P0 Open Issues': p0_open,
                     'P0 Closed Issues': p0_closed,
                     'Total Open Issues': total_open,
                     'Total Closed Issues': total_closed
                 })
-            
             qa_bug_metrics_df = pd.DataFrame(qa_bug_metrics)
             
             # Merge QA performance with bug metrics
@@ -468,206 +459,181 @@ for i, tab in enumerate(tabs):
                 # Create tabs for different priority levels
                 p0_tab, p1_tab, rest_tab = st.tabs(["P0 Issues", "P1 Issues", "Other Issues"])
                 
-                # Get all QAs and their assigned modules
-                qa_module_map = filtered_kudo_df.groupby('QA_Name')['Module'].apply(list).to_dict()
+                # --- FIX: Divide P0 bugs equally among QAs assigned to each module ---
+                p0_issues = []
+                for _, row in filtered_qa_df.iterrows():
+                    module = row['Module']
+                    bug_titles = row['Bug Titles'] if isinstance(row['Bug Titles'], list) else []
+                    p0_open_count = row['P0 issues Open']
+                    p0_closed_count = row['P0 issues closed']
+                    # Get QAs assigned to this module
+                    assigned_qas = filtered_kudo_df[filtered_kudo_df['Module'] == module]['QA_Name'].unique()
+                    num_qas = len(assigned_qas) if len(assigned_qas) > 0 else 1
+                    # Add open P0 issues
+                    for i in range(p0_open_count):
+                        if i < len(bug_titles):
+                            for qa_name in assigned_qas:
+                                p0_issues.append({
+                                    'Module': module,
+                                    'Bug Title': bug_titles[i],
+                                    'QA Name': qa_name,
+                                    'Status': 'Open',
+                                    'Share': 1/num_qas
+                                })
+                    # Add closed P0 issues
+                    for i in range(p0_closed_count):
+                        if (p0_open_count + i) < len(bug_titles):
+                            for qa_name in assigned_qas:
+                                p0_issues.append({
+                                    'Module': module,
+                                    'Bug Title': bug_titles[p0_open_count + i],
+                                    'QA Name': qa_name,
+                                    'Status': 'Closed',
+                                    'Share': 1/num_qas
+                                })
+                if p0_issues:
+                    p0_df = pd.DataFrame(p0_issues)
+                    # Group by module
+                    for module in sorted(p0_df['Module'].unique()):
+                        module_bugs = p0_df[p0_df['Module'] == module]
+                        st.markdown(f"#### 📁 {module} - {module_bugs['Share'].sum():.0f} P0 Issues (divided among QAs)")
+                        st.dataframe(
+                            module_bugs,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Module": st.column_config.TextColumn("Module", width="medium"),
+                                "Bug Title": st.column_config.TextColumn("Bug Title", width="large"),
+                                "QA Name": st.column_config.TextColumn("QA Name", width="medium"),
+                                "Status": st.column_config.TextColumn("Status", width="small"),
+                                "Share": st.column_config.NumberColumn("Share", format="%.2f")
+                            }
+                        )
+                        # Display metrics
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            open_issues = module_bugs[module_bugs['Status'] == 'Open']['Share'].sum()
+                            st.metric("Open P0 Issues", f"{open_issues:.0f}")
+                        with col2:
+                            closed_issues = module_bugs[module_bugs['Status'] == 'Closed']['Share'].sum()
+                            st.metric("Closed P0 Issues", f"{closed_issues:.0f}")
+                        st.markdown("---")
+                else:
+                    st.info("No P0 issues found.")
                 
-                # P0 Issues Tab
-                with p0_tab:
-                    st.markdown("#### Critical Issues (P0)")
-                    p0_issues = []
-                    
-                    # Process each QA's assigned modules
-                    for qa_name, assigned_modules in qa_module_map.items():
-                        # Get bugs for this QA's modules
-                        qa_bugs = filtered_qa_df[filtered_qa_df['Module'].isin(assigned_modules)]
-                        
-                        for _, row in qa_bugs.iterrows():
-                            if isinstance(row['Bug Titles'], list):
-                                # Get P0 issues for this module
-                                p0_open_count = row['P0 issues Open']
-                                p0_closed_count = row['P0 issues closed']
-                                
-                                # Add open P0 issues
-                                for i in range(p0_open_count):
-                                    if i < len(row['Bug Titles']):
-                                        p0_issues.append({
-                                            'Module': row['Module'],
-                                            'Bug Title': row['Bug Titles'][i],
-                                            'QA Name': qa_name,
-                                            'Status': 'Open'
-                                        })
-                                
-                                # Add closed P0 issues
-                                for i in range(p0_closed_count):
-                                    if (p0_open_count + i) < len(row['Bug Titles']):
-                                        p0_issues.append({
-                                            'Module': row['Module'],
-                                            'Bug Title': row['Bug Titles'][p0_open_count + i],
-                                            'QA Name': qa_name,
-                                            'Status': 'Closed'
-                                        })
-                    
-                    if p0_issues:
-                        p0_df = pd.DataFrame(p0_issues)
-                        # Group by module
-                        for module in sorted(p0_df['Module'].unique()):
-                            module_bugs = p0_df[p0_df['Module'] == module]
-                            st.markdown(f"#### 📁 {module} - {len(module_bugs)} P0 Issues")
-                            st.dataframe(
-                                module_bugs,
-                                use_container_width=True,
-                                hide_index=True,
-                                column_config={
-                                    "Module": st.column_config.TextColumn("Module", width="medium"),
-                                    "Bug Title": st.column_config.TextColumn("Bug Title", width="large"),
-                                    "QA Name": st.column_config.TextColumn("QA Name", width="medium"),
-                                    "Status": st.column_config.TextColumn("Status", width="small")
-                                }
-                            )
-                            
-                            # Display metrics
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                open_issues = len(module_bugs[module_bugs['Status'] == 'Open'])
-                                st.metric("Open P0 Issues", open_issues)
-                            with col2:
-                                closed_issues = len(module_bugs[module_bugs['Status'] == 'Closed'])
-                                st.metric("Closed P0 Issues", closed_issues)
-                            st.markdown("---")
-                    else:
-                        st.info("No P0 issues found.")
+                # --- FIX: Divide P1 bugs equally among QAs assigned to each module ---
+                p1_issues = []
+                for _, row in filtered_qa_df.iterrows():
+                    module = row['Module']
+                    bug_titles = row['Bug Titles'] if isinstance(row['Bug Titles'], list) else []
+                    p1_open_count = row['P1 Issues Open']
+                    p1_closed_count = row['P1 Issues Closed']
+                    assigned_qas = filtered_kudo_df[filtered_kudo_df['Module'] == module]['QA_Name'].unique()
+                    num_qas = len(assigned_qas) if len(assigned_qas) > 0 else 1
+                    for i in range(p1_open_count):
+                        if i < len(bug_titles):
+                            for qa_name in assigned_qas:
+                                p1_issues.append({
+                                    'Module': module,
+                                    'Bug Title': bug_titles[i],
+                                    'QA Name': qa_name,
+                                    'Status': 'Open',
+                                    'Share': 1/num_qas
+                                })
+                    for i in range(p1_closed_count):
+                        if (p1_open_count + i) < len(bug_titles):
+                            for qa_name in assigned_qas:
+                                p1_issues.append({
+                                    'Module': module,
+                                    'Bug Title': bug_titles[p1_open_count + i],
+                                    'QA Name': qa_name,
+                                    'Status': 'Closed',
+                                    'Share': 1/num_qas
+                                })
+                if p1_issues:
+                    p1_df = pd.DataFrame(p1_issues)
+                    for module in sorted(p1_df['Module'].unique()):
+                        module_bugs = p1_df[p1_df['Module'] == module]
+                        st.markdown(f"#### 📁 {module} - {module_bugs['Share'].sum():.0f} P1 Issues (divided among QAs)")
+                        st.dataframe(
+                            module_bugs,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Module": st.column_config.TextColumn("Module", width="medium"),
+                                "Bug Title": st.column_config.TextColumn("Bug Title", width="large"),
+                                "QA Name": st.column_config.TextColumn("QA Name", width="medium"),
+                                "Status": st.column_config.TextColumn("Status", width="small"),
+                                "Share": st.column_config.NumberColumn("Share", format="%.2f")
+                            }
+                        )
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            open_issues = module_bugs[module_bugs['Status'] == 'Open']['Share'].sum()
+                            st.metric("Open P1 Issues", f"{open_issues:.0f}")
+                        with col2:
+                            closed_issues = module_bugs[module_bugs['Status'] == 'Closed']['Share'].sum()
+                            st.metric("Closed P1 Issues", f"{closed_issues:.0f}")
+                        st.markdown("---")
+                else:
+                    st.info("No P1 issues found.")
                 
-                # P1 Issues Tab
-                with p1_tab:
-                    st.markdown("#### High Priority Issues (P1)")
-                    p1_issues = []
-                    
-                    # Process each QA's assigned modules
-                    for qa_name, assigned_modules in qa_module_map.items():
-                        # Get bugs for this QA's modules
-                        qa_bugs = filtered_qa_df[filtered_qa_df['Module'].isin(assigned_modules)]
-                        
-                        for _, row in qa_bugs.iterrows():
-                            if isinstance(row['Bug Titles'], list):
-                                # Get P1 issues for this module
-                                p1_open_count = row['P1 Issues Open']
-                                p1_closed_count = row['P1 Issues Closed']
-                                
-                                # Add open P1 issues
-                                for i in range(p1_open_count):
-                                    if i < len(row['Bug Titles']):
-                                        p1_issues.append({
-                                            'Module': row['Module'],
-                                            'Bug Title': row['Bug Titles'][i],
-                                            'QA Name': qa_name,
-                                            'Status': 'Open'
-                                        })
-                                
-                                # Add closed P1 issues
-                                for i in range(p1_closed_count):
-                                    if (p1_open_count + i) < len(row['Bug Titles']):
-                                        p1_issues.append({
-                                            'Module': row['Module'],
-                                            'Bug Title': row['Bug Titles'][p1_open_count + i],
-                                            'QA Name': qa_name,
-                                            'Status': 'Closed'
-                                        })
-                    
-                    if p1_issues:
-                        p1_df = pd.DataFrame(p1_issues)
-                        # Group by module
-                        for module in sorted(p1_df['Module'].unique()):
-                            module_bugs = p1_df[p1_df['Module'] == module]
-                            st.markdown(f"#### 📁 {module} - {len(module_bugs)} P1 Issues")
-                            st.dataframe(
-                                module_bugs,
-                                use_container_width=True,
-                                hide_index=True,
-                                column_config={
-                                    "Module": st.column_config.TextColumn("Module", width="medium"),
-                                    "Bug Title": st.column_config.TextColumn("Bug Title", width="large"),
-                                    "QA Name": st.column_config.TextColumn("QA Name", width="medium"),
-                                    "Status": st.column_config.TextColumn("Status", width="small")
-                                }
-                            )
-                            
-                            # Display metrics
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                open_issues = len(module_bugs[module_bugs['Status'] == 'Open'])
-                                st.metric("Open P1 Issues", open_issues)
-                            with col2:
-                                closed_issues = len(module_bugs[module_bugs['Status'] == 'Closed'])
-                                st.metric("Closed P1 Issues", closed_issues)
-                            st.markdown("---")
-                    else:
-                        st.info("No P1 issues found.")
-                
-                # Other Issues Tab
-                with rest_tab:
-                    st.markdown("#### Other Issues")
-                    rest_issues = []
-                    
-                    # Process each QA's assigned modules
-                    for qa_name, assigned_modules in qa_module_map.items():
-                        # Get bugs for this QA's modules
-                        qa_bugs = filtered_qa_df[filtered_qa_df['Module'].isin(assigned_modules)]
-                        
-                        for _, row in qa_bugs.iterrows():
-                            if isinstance(row['Bug Titles'], list):
-                                # Get other issues for this module
-                                rest_open_count = row['Rest Issues Open']
-                                rest_closed_count = row['Rest Issues Closed']
-                                
-                                # Add open other issues
-                                for i in range(rest_open_count):
-                                    if i < len(row['Bug Titles']):
-                                        rest_issues.append({
-                                            'Module': row['Module'],
-                                            'Bug Title': row['Bug Titles'][i],
-                                            'QA Name': qa_name,
-                                            'Status': 'Open'
-                                        })
-                                
-                                # Add closed other issues
-                                for i in range(rest_closed_count):
-                                    if (rest_open_count + i) < len(row['Bug Titles']):
-                                        rest_issues.append({
-                                            'Module': row['Module'],
-                                            'Bug Title': row['Bug Titles'][rest_open_count + i],
-                                            'QA Name': qa_name,
-                                            'Status': 'Closed'
-                                        })
-                    
-                    if rest_issues:
-                        rest_df = pd.DataFrame(rest_issues)
-                        # Group by module
-                        for module in sorted(rest_df['Module'].unique()):
-                            module_bugs = rest_df[rest_df['Module'] == module]
-                            st.markdown(f"#### 📁 {module} - {len(module_bugs)} Other Issues")
-                            st.dataframe(
-                                module_bugs,
-                                use_container_width=True,
-                                hide_index=True,
-                                column_config={
-                                    "Module": st.column_config.TextColumn("Module", width="medium"),
-                                    "Bug Title": st.column_config.TextColumn("Bug Title", width="large"),
-                                    "QA Name": st.column_config.TextColumn("QA Name", width="medium"),
-                                    "Status": st.column_config.TextColumn("Status", width="small")
-                                }
-                            )
-                            
-                            # Display metrics
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                open_issues = len(module_bugs[module_bugs['Status'] == 'Open'])
-                                st.metric("Open Issues", open_issues)
-                            with col2:
-                                closed_issues = len(module_bugs[module_bugs['Status'] == 'Closed'])
-                                st.metric("Closed Issues", closed_issues)
-                            st.markdown("---")
-                    else:
-                        st.info("No other issues found.")
+                # --- FIX: Divide Rest bugs equally among QAs assigned to each module ---
+                rest_issues = []
+                for _, row in filtered_qa_df.iterrows():
+                    module = row['Module']
+                    bug_titles = row['Bug Titles'] if isinstance(row['Bug Titles'], list) else []
+                    rest_open_count = row['Rest Issues Open']
+                    rest_closed_count = row['Rest Issues Closed']
+                    assigned_qas = filtered_kudo_df[filtered_kudo_df['Module'] == module]['QA_Name'].unique()
+                    num_qas = len(assigned_qas) if len(assigned_qas) > 0 else 1
+                    for i in range(rest_open_count):
+                        if i < len(bug_titles):
+                            for qa_name in assigned_qas:
+                                rest_issues.append({
+                                    'Module': module,
+                                    'Bug Title': bug_titles[i],
+                                    'QA Name': qa_name,
+                                    'Status': 'Open',
+                                    'Share': 1/num_qas
+                                })
+                    for i in range(rest_closed_count):
+                        if (rest_open_count + i) < len(bug_titles):
+                            for qa_name in assigned_qas:
+                                rest_issues.append({
+                                    'Module': module,
+                                    'Bug Title': bug_titles[rest_open_count + i],
+                                    'QA Name': qa_name,
+                                    'Status': 'Closed',
+                                    'Share': 1/num_qas
+                                })
+                if rest_issues:
+                    rest_df = pd.DataFrame(rest_issues)
+                    for module in sorted(rest_df['Module'].unique()):
+                        module_bugs = rest_df[rest_df['Module'] == module]
+                        st.markdown(f"#### 📁 {module} - {module_bugs['Share'].sum():.0f} Other Issues (divided among QAs)")
+                        st.dataframe(
+                            module_bugs,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Module": st.column_config.TextColumn("Module", width="medium"),
+                                "Bug Title": st.column_config.TextColumn("Bug Title", width="large"),
+                                "QA Name": st.column_config.TextColumn("QA Name", width="medium"),
+                                "Status": st.column_config.TextColumn("Status", width="small"),
+                                "Share": st.column_config.NumberColumn("Share", format="%.2f")
+                            }
+                        )
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            open_issues = module_bugs[module_bugs['Status'] == 'Open']['Share'].sum()
+                            st.metric("Open Issues", f"{open_issues:.0f}")
+                        with col2:
+                            closed_issues = module_bugs[module_bugs['Status'] == 'Closed']['Share'].sum()
+                            st.metric("Closed Issues", f"{closed_issues:.0f}")
+                        st.markdown("---")
+                else:
+                    st.info("No other issues found.")
 
             st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
             
@@ -818,25 +784,32 @@ for i, tab in enumerate(tabs):
                         bug_titles = row['Bug Titles']
                         test_cases = row['Test Cases'] if 'Test Cases' in row and isinstance(row['Test Cases'], list) else []
                         bugs = []
-                        idx = 0
                         priorities = [
                             ("P0", row['P0 issues Open'], row['P0 issues closed']),
                             ("P1", row['P1 Issues Open'], row['P1 Issues Closed']),
                             ("Rest", row['Rest Issues Open'], row['Rest Issues Closed'])
                         ]
+                        start = 0
                         for prio, open_count, closed_count in priorities:
                             if status == 'Open':
-                                count = open_count
+                                for i in range(open_count):
+                                    idx = start + i
+                                    if idx < len(bug_titles):
+                                        bugs.append({
+                                            'Priority': prio,
+                                            'Bug Title': bug_titles[idx],
+                                            'Test Case': test_cases[idx] if idx < len(test_cases) else ''
+                                        })
                             else:
-                                count = closed_count
-                            for i in range(count):
-                                if idx < len(bug_titles):
-                                    bugs.append({
-                                        'Priority': prio,
-                                        'Bug Title': bug_titles[idx],
-                                        'Test Case': test_cases[idx] if idx < len(test_cases) else ''
-                                    })
-                                idx += 1
+                                for i in range(closed_count):
+                                    idx = start + open_count + i
+                                    if idx < len(bug_titles):
+                                        bugs.append({
+                                            'Priority': prio,
+                                            'Bug Title': bug_titles[idx],
+                                            'Test Case': test_cases[idx] if idx < len(test_cases) else ''
+                                        })
+                            start += open_count + closed_count
                         return bugs
 
                     # Show open bugs by priority
@@ -931,7 +904,35 @@ for i, tab in enumerate(tabs):
         elif tab_names[i] == "Feature":
             st.subheader("Feature Tracking")
             st.markdown("This tab tracks features tested each month, including QA, EM, go live date, month, and ticket link.")
-            st.dataframe(feature_df[[col for col in ['Feature Name', 'QA Name', 'EM Name', 'Go Live Date', 'Month', 'Feature Ticket Link'] if col in feature_df.columns]], use_container_width=True, hide_index=True)
+            # Show all columns from the Feature Tracker sheet
+            feature_df_display = feature_df.copy()
+            if 'Month' in feature_df_display.columns:
+                # Format month for display and filtering
+                feature_df_display['Month_Display'] = feature_df_display['Month'].apply(lambda x: x.strftime('%B %Y') if hasattr(x, 'strftime') else str(x))
+                unique_months = feature_df_display['Month_Display'].dropna().unique().tolist()
+                unique_months = sorted(unique_months)
+                selected_month = st.selectbox('Select Month', options=['All'] + unique_months, index=0)
+                if selected_month != 'All':
+                    feature_df_display = feature_df_display[feature_df_display['Month_Display'] == selected_month]
+                # Replace 'Month' column with formatted month
+                feature_df_display['Month'] = feature_df_display['Month_Display']
+                feature_df_display = feature_df_display.drop(columns=['Month_Display'])
+            # Make hyperlinks clickable for columns containing 'link'
+            def make_clickable(val):
+                if isinstance(val, str) and re.match(r'https?://', val):
+                    return f'<a href="{val}" target="_blank">{val}</a>'
+                return val
+            link_cols = [col for col in feature_df_display.columns if 'link' in col.lower()]
+            if link_cols:
+                feature_html = feature_df_display.copy()
+                for col in link_cols:
+                    feature_html[col] = feature_html[col].apply(make_clickable)
+                st.markdown(
+                    feature_html.to_html(escape=False, index=False),
+                    unsafe_allow_html=True
+                )
+            else:
+                st.dataframe(feature_df_display, use_container_width=True, hide_index=True)
 
 # Add a summary section at the bottom
 st.markdown("---")

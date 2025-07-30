@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+import re
 
 # Set page config
 st.set_page_config(
@@ -154,15 +155,11 @@ def load_data():
         em_scores = pd.read_excel(xls, 'EM Scores')
         auto_df = pd.read_excel(xls, 'Automation Status')
         try:
-            feature_df = pd.read_excel(xls, 'Feature Tracking')
+            feature_df = pd.read_excel(xls, 'Feature Tracker')
             if 'Month' not in feature_df.columns:
                 feature_df['Month'] = ''
-        except Exception:
-            feature_df = pd.DataFrame([
-                {'Feature Name': 'Login Revamp', 'QA Name': 'Alice', 'EM Name': 'Bob', 'Go Live Date': '2024-06-01', 'Month': 'June 2024', 'Feature Ticket Link': ''},
-                {'Feature Name': 'Dark Mode', 'QA Name': 'Charlie', 'EM Name': 'Dana', 'Go Live Date': '2024-06-15', 'Month': 'June 2024', 'Feature Ticket Link': ''},
-                {'Feature Name': 'API v2', 'QA Name': 'Eve', 'EM Name': 'Frank', 'Go Live Date': '2024-07-01', 'Month': 'July 2024', 'Feature Ticket Link': ''}
-            ])
+        except Exception as e:
+            raise RuntimeError("Could not load 'Feature Tracker' sheet from Excel. Please check the sheet name and data format.") from e
     return qa_df, kudo_df, qa_scores, em_scores, auto_df, feature_df
 
 try:
@@ -922,7 +919,7 @@ for i, tab in enumerate(tabs):
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     # Add a note if the year was changed
-                    if any('2024-' in m for m in auto_df['Month']):
+                    if any('2024-' in str(m) for m in auto_df['Month']):
                         st.info(f"Note: Month values shown with current year {current_year} for display. Update your data for accuracy.")
                 else:
                     st.info('No valid automation data to plot.')
@@ -931,7 +928,14 @@ for i, tab in enumerate(tabs):
         elif tab_names[i] == "Feature":
             st.subheader("Feature Tracking")
             st.markdown("This tab tracks features tested each month, including QA, EM, go live date, month, and ticket link.")
-            st.dataframe(feature_df[[col for col in ['Feature Name', 'QA Name', 'EM Name', 'Go Live Date', 'Month', 'Feature Ticket Link'] if col in feature_df.columns]], use_container_width=True, hide_index=True)
+            # Remove 'Month' column if it exists
+            feature_df_display = feature_df.drop(columns=[col for col in feature_df.columns if col.lower() == 'month'], errors='ignore')
+            def make_clickable(val):
+                if isinstance(val, str) and re.match(r"https?://", val):
+                    return f'<a href="{val}" target="_blank">{val}</a>'
+                return val
+            feature_html = feature_df_display.applymap(make_clickable).to_html(escape=False, index=False)
+            st.markdown(feature_html, unsafe_allow_html=True)
 
 # Add a summary section at the bottom
 st.markdown("---")
